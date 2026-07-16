@@ -163,15 +163,16 @@ async function main() {
     description: "Checklist de segurança para instalações físicas do Ministério Público de Santa Catarina.",
   });
 
+  // Pesos por seção (criticidade 2-5), conforme isi-logica-calculo.xlsx / aba "Pesos por Item".
   const mpscSections = [
-    { sectionOrder: 1, sectionName: "Segurança Perimetral e Acessos Externos" },
-    { sectionOrder: 2, sectionName: "Acessos Diretos à Edificação" },
-    { sectionOrder: 3, sectionName: "Janelas, Aberturas e Acessos Superiores" },
-    { sectionOrder: 4, sectionName: "Sistemas Eletrônicos de Segurança" },
-    { sectionOrder: 5, sectionName: "Iluminação, Visibilidade e Sinalização" },
-    { sectionOrder: 6, sectionName: "Segurança Contra Incêndio e Emergências" },
-    { sectionOrder: 7, sectionName: "Segurança da Informação e Acervo" },
-    { sectionOrder: 8, sectionName: "Procedimentos Operacionais e Cultura de Segurança" },
+    { sectionOrder: 1, sectionName: "Segurança Perimetral e Acessos Externos", weight: 3 },
+    { sectionOrder: 2, sectionName: "Acessos Diretos à Edificação", weight: 4 },
+    { sectionOrder: 3, sectionName: "Janelas, Aberturas e Acessos Superiores", weight: 3 },
+    { sectionOrder: 4, sectionName: "Sistemas Eletrônicos de Segurança", weight: 4 },
+    { sectionOrder: 5, sectionName: "Iluminação, Visibilidade e Sinalização", weight: 2 },
+    { sectionOrder: 6, sectionName: "Segurança Contra Incêndio e Emergências", weight: 5 },
+    { sectionOrder: 7, sectionName: "Segurança da Informação e Acervo", weight: 5 },
+    { sectionOrder: 8, sectionName: "Procedimentos Operacionais e Cultura de Segurança", weight: 2 },
   ];
 
   for (const sec of mpscSections) {
@@ -179,6 +180,7 @@ async function main() {
       checklistId: mpscChecklist.insertId,
       sectionOrder: sec.sectionOrder,
       sectionName: sec.sectionName,
+      weight: sec.weight,
     });
 
     let sectionItems: { itemText: string; isSubheading?: boolean }[] = [];
@@ -194,6 +196,8 @@ async function main() {
         { itemText: "Os portões de acesso de veículos são robustos e em bom estado?" },
         { itemText: "O portão é automatizado com controle de acesso seguro (ex: código rolante, cartão)?" },
         { itemText: "O portão possui sistema de travamento manual em caso de falha de energia?" },
+        { itemText: "Existe controle de entrada e saída de veículos (registro, identificação)?" },
+        { itemText: "O estacionamento possui iluminação adequada e vigilância?" },
         { itemText: "S1.3 - Portões e Acessos de Pedestres", isSubheading: true },
         { itemText: "Os acessos de pedestres possuem fechaduras seguras e controle de acesso?" },
         { itemText: "Existe portaria com identificação obrigatória de visitantes?" },
@@ -208,6 +212,7 @@ async function main() {
         { itemText: "Existem fechaduras auxiliares (travas tetra, ferrolhos)?" },
         { itemText: "As dobradiças estão instaladas pelo lado interno ou possuem pinos de segurança?" },
         { itemText: "Os batentes estão bem fixados e em bom estado?" },
+        { itemText: "Existe sistema de vídeo porteiro ou interfone nas entradas?" },
         { itemText: "S2.2 - Portas de Vidro e Acessos Especiais", isSubheading: true },
         { itemText: "O vidro das portas é laminado, temperado ou possui película de segurança?" },
         { itemText: "As travas das portas de vidro são robustas e funcionais?" },

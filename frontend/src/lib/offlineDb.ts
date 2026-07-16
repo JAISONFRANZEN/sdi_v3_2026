@@ -15,6 +15,7 @@ export interface LocalInspection {
   inspectorName: string;
   location?: string;
   unitType?: string;
+  localThreatLevel?: number;
   notes?: string;
   answers: LocalAnswer[];
   updatedAt: number;

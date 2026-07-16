@@ -25,13 +25,25 @@ export default function InspectionDetailPage() {
         {new Date(inspection.inspectionDate).toLocaleString("pt-BR")}
       </p>
 
-      <div className="compliance-score">Conformidade geral: {inspection.globalCompliance}%</div>
+      <div className="compliance-score">
+        ISI: {inspection.score.isi}% — {inspection.score.classification}
+      </div>
+      <p>
+        ISI Ajustado (risco residual, considera ameaça local): {inspection.score.isiAjustado}% —{" "}
+        {inspection.score.classificationAjustado} · ISI Projetado (se todas as recomendações forem
+        implementadas): {inspection.score.isiProjetado}% — {inspection.score.classificationProjetado} ·
+        Conformidade simples (sem pesos): {inspection.score.conformidadeSimples}%
+      </p>
+      <p>
+        Fator de unidade aplicado: {inspection.score.unitFactor}× · Nível de ameaça local:{" "}
+        {inspection.score.localThreatLevel}
+      </p>
 
       <h2>Conformidade por seção</h2>
       <ul>
         {inspection.sectionBreakdown.map((s) => (
           <li key={s.sectionId}>
-            {s.sectionName}: {s.score}%
+            {s.sectionName} (peso {s.weight}): {s.score}%
           </li>
         ))}
       </ul>

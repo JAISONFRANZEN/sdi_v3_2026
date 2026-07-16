@@ -22,7 +22,7 @@ export default function AnalyticsPage() {
     <div>
       <h1>Análise — {profileType === "mpsc" ? "MPSC" : "Residencial"}</h1>
       <p>Total de inspeções: {totalInspections}</p>
-      <div className="compliance-score">Conformidade média: {averageCompliance}%</div>
+      <div className="compliance-score">ISI médio: {averageCompliance}%</div>
 
       <h2>Por inspeção</h2>
       <ul>
@@ -30,7 +30,7 @@ export default function AnalyticsPage() {
           <li key={i.inspectionId}>
             <Link to={`/checklist/${profileType}/inspections/${i.inspectionId}`}>
               {i.location || i.unitType || `Inspeção #${i.inspectionId}`} —{" "}
-              {new Date(i.inspectionDate).toLocaleDateString("pt-BR")}: {i.compliance}%
+              {new Date(i.inspectionDate).toLocaleDateString("pt-BR")}: ISI {i.isi}% ({i.classification})
             </Link>
           </li>
         ))}

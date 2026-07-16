@@ -7,6 +7,7 @@ import {
   timestamp,
   mysqlEnum,
   uniqueIndex,
+  decimal,
 } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
 
@@ -45,6 +46,10 @@ export const sections = mysqlTable("sections", {
   sectionOrder: int("section_order").notNull(),
   sectionName: varchar("section_name", { length: 255 }).notNull(),
   description: text("description"),
+  // Criticidade da seção (2 a 5) conforme metodologia ISI. Seções sem peso
+  // definido (ex.: Residencial) usam 1, o que reduz a fórmula do ISI à média
+  // simples de conformidade.
+  weight: int("weight").notNull().default(1),
 });
 
 export const items = mysqlTable("items", {
@@ -70,14 +75,26 @@ export const inspections = mysqlTable("inspections", {
   inspectorName: varchar("inspector_name", { length: 255 }).notNull(),
   inspectionDate: timestamp("inspection_date").defaultNow().notNull(),
   location: varchar("location", { length: 255 }),
+  // Conforme "Fatores Unidade" (isi-logica-calculo.xlsx): cada tipo tem um
+  // FatorUnidade (0.5-1.5) aplicado ao ISI. "Residência" é específico do
+  // perfil Residencial e usa fator neutro (1.0).
   unitType: mysqlEnum("unit_type", [
-    "Procuradoria",
-    "Promotoria",
-    "Sede Administrativa",
-    "Anexo",
+    "GAECO",
+    "Isolada",
+    "Administrativo",
+    "Apoio Técnico",
+    "Fórum de Justiça",
+    "Fórum de Justiça - Ala",
+    "Fórum de Justiça - Sala de apoio",
+    "Terreno",
     "Residência",
     "Outro",
   ]),
+  // NívelAmeaçaLocal da fórmula ISI (1.0 a 2.0). Quanto maior, menor o score
+  // ajustado. Preenchido pelo inspetor; default neutro = 1.0.
+  localThreatLevel: decimal("local_threat_level", { precision: 3, scale: 2 })
+    .notNull()
+    .default("1.00"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({

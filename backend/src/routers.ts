@@ -38,8 +38,21 @@ const inspectionSyncSchema = z.object({
   inspectorName: z.string().min(1),
   location: z.string().optional(),
   unitType: z
-    .enum(["Procuradoria", "Promotoria", "Sede Administrativa", "Anexo", "Residência", "Outro"])
+    .enum([
+      "GAECO",
+      "Isolada",
+      "Administrativo",
+      "Apoio Técnico",
+      "Fórum de Justiça",
+      "Fórum de Justiça - Ala",
+      "Fórum de Justiça - Sala de apoio",
+      "Terreno",
+      "Residência",
+      "Outro",
+    ])
     .optional(),
+  // NívelAmeaçaLocal (1.0 a 2.0) usado no ISI Ajustado. Default neutro = 1.0.
+  localThreatLevel: z.number().min(1).max(2).optional(),
   notes: z.string().optional(),
   answers: z.array(answerInputSchema),
 });
@@ -150,14 +163,14 @@ export const appRouter = t.router({
         const recommendationRows = await db.query.recommendations.findMany({
           where: eq(recommendations.inspectionId, input.id),
         });
-        const globalCompliance = await riskScoreEngine.calculateGlobalCompliance(input.id);
+        const score = await riskScoreEngine.calculateScore(input.id);
         const sectionBreakdown = await riskScoreEngine.calculateSectionBreakdown(input.id);
 
         return {
           ...inspection,
           answers: answerRows,
           recommendations: recommendationRows,
-          globalCompliance,
+          score,
           sectionBreakdown,
         };
       }),
@@ -188,6 +201,8 @@ export const appRouter = t.router({
             inspectorName: input.inspectorName,
             location: input.location,
             unitType: input.unitType,
+            localThreatLevel:
+              input.localThreatLevel != null ? input.localThreatLevel.toFixed(2) : undefined,
             notes: input.notes,
           })
           .where(eq(inspections.id, inspectionId));
@@ -201,6 +216,8 @@ export const appRouter = t.router({
           inspectorName: input.inspectorName,
           location: input.location,
           unitType: input.unitType,
+          localThreatLevel:
+            input.localThreatLevel != null ? input.localThreatLevel.toFixed(2) : undefined,
           notes: input.notes,
         });
         inspectionId = result.insertId;
@@ -224,9 +241,9 @@ export const appRouter = t.router({
         });
       }
 
-      const globalCompliance = await riskScoreEngine.calculateGlobalCompliance(inspectionId);
+      const score = await riskScoreEngine.calculateScore(inspectionId);
 
-      return { inspectionId, clientUuid: input.clientUuid, globalCompliance };
+      return { inspectionId, clientUuid: input.clientUuid, score };
     }),
   }),
 
@@ -240,21 +257,24 @@ export const appRouter = t.router({
         });
 
         const scored = await Promise.all(
-          inspectionRows.map(async (i) => ({
-            inspectionId: i.id,
-            location: i.location,
-            unitType: i.unitType,
-            inspectionDate: i.inspectionDate,
-            compliance: await riskScoreEngine.calculateGlobalCompliance(i.id),
-          }))
+          inspectionRows.map(async (i) => {
+            const score = await riskScoreEngine.calculateScore(i.id);
+            return {
+              inspectionId: i.id,
+              location: i.location,
+              unitType: i.unitType,
+              inspectionDate: i.inspectionDate,
+              isi: score.isi,
+              isiAjustado: score.isiAjustado,
+              classification: score.classification,
+            };
+          })
         );
 
         const averageCompliance =
           scored.length === 0
             ? 0
-            : Math.round(
-                (scored.reduce((acc, s) => acc + s.compliance, 0) / scored.length) * 100
-              ) / 100;
+            : Math.round((scored.reduce((acc, s) => acc + s.isi, 0) / scored.length) * 100) / 100;
 
         return {
           checklistId: input.checklistId,

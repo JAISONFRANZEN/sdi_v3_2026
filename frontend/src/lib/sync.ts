@@ -17,6 +17,7 @@ export async function flushPendingInspections(
     inspectorName: string;
     location?: string;
     unitType?: LocalUnitType;
+    localThreatLevel?: number;
     notes?: string;
     answers: { itemId: number; status: AnswerStatus; observations?: string }[];
   }) => Promise<{ inspectionId: number }>
@@ -32,6 +33,7 @@ export async function flushPendingInspections(
         inspectorName: inspection.inspectorName,
         location: inspection.location,
         unitType: inspection.unitType as LocalUnitType | undefined,
+        localThreatLevel: inspection.localThreatLevel,
         notes: inspection.notes,
         answers: inspection.answers,
       });
@@ -47,10 +49,14 @@ export async function flushPendingInspections(
 }
 
 type LocalUnitType =
-  | "Procuradoria"
-  | "Promotoria"
-  | "Sede Administrativa"
-  | "Anexo"
+  | "GAECO"
+  | "Isolada"
+  | "Administrativo"
+  | "Apoio Técnico"
+  | "Fórum de Justiça"
+  | "Fórum de Justiça - Ala"
+  | "Fórum de Justiça - Sala de apoio"
+  | "Terreno"
   | "Residência"
   | "Outro";
 

@@ -1,0 +1,3 @@
+ALTER TABLE `inspections` MODIFY COLUMN `unit_type` enum('GAECO','Isolada','Administrativo','Apoio Técnico','Fórum de Justiça','Fórum de Justiça - Ala','Fórum de Justiça - Sala de apoio','Terreno','Residência','Outro');--> statement-breakpoint
+ALTER TABLE `inspections` ADD `local_threat_level` decimal(3,2) DEFAULT '1.00' NOT NULL;--> statement-breakpoint
+ALTER TABLE `sections` ADD `weight` int DEFAULT 1 NOT NULL;

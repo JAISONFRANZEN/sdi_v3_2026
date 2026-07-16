@@ -7,7 +7,17 @@ import { cacheChecklistIndex, getCachedChecklistIndex, resolveChecklistId } from
 import { cacheChecklist, getCachedChecklist, saveInspectionLocally, type AnswerStatus } from "../lib/offlineDb";
 import SectionCard, { type ChecklistSection } from "../components/SectionCard";
 
-const UNIT_TYPES = ["Procuradoria", "Promotoria", "Sede Administrativa", "Anexo", "Residência", "Outro"] as const;
+const UNIT_TYPES = [
+  "GAECO",
+  "Isolada",
+  "Administrativo",
+  "Apoio Técnico",
+  "Fórum de Justiça",
+  "Fórum de Justiça - Ala",
+  "Fórum de Justiça - Sala de apoio",
+  "Terreno",
+  "Outro",
+] as const;
 
 interface ChecklistFull {
   id: number;
@@ -29,6 +39,7 @@ export default function NewInspectionPage() {
   const [inspectorName, setInspectorName] = useState(name ?? "");
   const [location, setLocation] = useState("");
   const [unitType, setUnitType] = useState<(typeof UNIT_TYPES)[number] | "">("");
+  const [localThreatLevel, setLocalThreatLevel] = useState("1.0");
   const [notes, setNotes] = useState("");
   const [answersByItemId, setAnswersByItemId] = useState<
     Record<number, { status: AnswerStatus; observations?: string }>
@@ -101,6 +112,7 @@ export default function NewInspectionPage() {
       inspectorName,
       location: location || undefined,
       unitType: unitType || undefined,
+      localThreatLevel: profileType === "mpsc" ? Number(localThreatLevel) : undefined,
       notes: notes || undefined,
       answers: answersPayload,
       updatedAt: Date.now(),
@@ -115,6 +127,7 @@ export default function NewInspectionPage() {
           inspectorName,
           location: location || undefined,
           unitType: unitType || undefined,
+          localThreatLevel: profileType === "mpsc" ? Number(localThreatLevel) : undefined,
           notes: notes || undefined,
           answers: answersPayload,
         });
@@ -146,14 +159,28 @@ export default function NewInspectionPage() {
           />
           <input placeholder="Local / Endereço" value={location} onChange={(e) => setLocation(e.target.value)} />
           {profileType === "mpsc" && (
-            <select value={unitType} onChange={(e) => setUnitType(e.target.value as typeof unitType)}>
-              <option value="">Tipo de unidade</option>
-              {UNIT_TYPES.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
+            <>
+              <select value={unitType} onChange={(e) => setUnitType(e.target.value as typeof unitType)}>
+                <option value="">Tipo de unidade</option>
+                {UNIT_TYPES.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+              <label>
+                Nível de ameaça local (1,0 a 2,0)
+                <input
+                  type="number"
+                  min={1}
+                  max={2}
+                  step={0.1}
+                  value={localThreatLevel}
+                  onChange={(e) => setLocalThreatLevel(e.target.value)}
+                  style={{ marginLeft: "0.5rem", width: 70 }}
+                />
+              </label>
+            </>
           )}
         </div>
 
