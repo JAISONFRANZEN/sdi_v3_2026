@@ -1,30 +1,34 @@
-# Stage 1: Build the frontend
-FROM node:18-alpine AS frontend-builder
-WORKDIR /app/frontend
-COPY frontend/package.json ./
-RUN npm install
-COPY frontend/ ./
-RUN npm run build
+# Single shared stage: the frontend's tsc build resolves AppRouter via a
+# relative type-only import into ../backend/src/routers, so both projects
+# (with backend's node_modules, for full type resolution) must sit side by
+# side in the same filesystem during the build — isolated builder stages
+# don't have that sibling directory available.
+FROM node:18-alpine AS builder
+WORKDIR /app
 
-# Stage 2: Build the backend
-FROM node:18-alpine AS backend-builder
-WORKDIR /app/backend
-COPY backend/package.json ./
-RUN npm install
-COPY backend/ ./
-RUN npm run build
+COPY backend/package.json backend/package.json
+RUN cd backend && npm install
+COPY backend/ backend/
+RUN cd backend && npm run build
 
-# Stage 3: Run the application
+COPY frontend/package.json frontend/package.json
+RUN cd frontend && npm install
+COPY frontend/ frontend/
+RUN cd frontend && npm run build
+
+# Stage 2: Run the application
 FROM node:18-alpine
 WORKDIR /app
-COPY --from=backend-builder /app/backend/dist ./backend/dist
-COPY --from=backend-builder /app/backend/node_modules ./backend/node_modules
-COPY --from=backend-builder /app/backend/package.json ./backend/package.json
-COPY --from=backend-builder /app/backend/drizzle ./backend/drizzle
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+COPY --from=builder /app/backend/dist ./backend/dist
+COPY --from=builder /app/backend/node_modules ./backend/node_modules
+COPY --from=builder /app/backend/package.json ./backend/package.json
+COPY --from=builder /app/backend/drizzle ./backend/drizzle
+COPY --from=builder /app/frontend/dist ./frontend/dist
 
 ENV NODE_ENV=production
 EXPOSE 3000
-# seed.ts é compilado para backend/dist/seed.js pelo `npm run build` (incluído
-# no tsconfig do backend); popule com: docker compose exec app node backend/dist/seed.js
-CMD ["node", "backend/dist/index.js"]
+# tsc preserva a subpasta src/ (rootDir "."), então o entrypoint compilado
+# fica em dist/src/index.js, não dist/index.js.
+# seed.ts é compilado para backend/dist/seed.js; popule com:
+# docker compose exec app node backend/dist/seed.js
+CMD ["node", "backend/dist/src/index.js"]
