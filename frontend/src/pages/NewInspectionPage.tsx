@@ -95,7 +95,6 @@ export default function NewInspectionPage() {
   const [location, setLocation] = useState("");
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [threatLevel, setThreatLevel] = useState("1");
-  const [usePrefill, setUsePrefill] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   const listQuery = trpc.checklists.list.useQuery(undefined, { retry: 1 });
@@ -138,19 +137,21 @@ export default function NewInspectionPage() {
   const selectedUnit: Unit | null =
     units.find((u) => String(u.id) === selectedUnitId) ?? null;
 
-  // Pré-preenchimento com a última inspeção da unidade selecionada
+  // Pré-preenchimento automático com a última inspeção da unidade selecionada:
+  // assim que uma unidade com histórico é escolhida, o formulário já carrega
+  // as respostas da versão anterior (o inspetor só revisa e ajusta).
   const lastQuery = trpc.inspections.getLastByUnit.useQuery(
     { unitId: Number(selectedUnitId), checklistId: checklistId as number },
-    { enabled: usePrefill && !!selectedUnitId && checklistId != null && !!token, retry: 1 }
+    { enabled: !!selectedUnitId && checklistId != null && !!token, retry: 1 }
   );
   const previousAnswers = useMemo(() => {
-    if (!usePrefill || !lastQuery.data) return undefined;
+    if (!lastQuery.data) return undefined;
     return lastQuery.data.answers.map((a) => ({
       itemId: a.itemId,
       status: a.status,
       observations: a.observations ?? undefined,
     }));
-  }, [usePrefill, lastQuery.data]);
+  }, [lastQuery.data]);
 
   const syncMutation = trpc.inspections.sync.useMutation();
 
@@ -256,15 +257,11 @@ export default function NewInspectionPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {selectedUnitId && (
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-                    <input
-                      type="checkbox"
-                      checked={usePrefill}
-                      onChange={(e) => setUsePrefill(e.target.checked)}
-                    />
-                    Pré-preencher com a última inspeção desta unidade
-                  </label>
+                {selectedUnitId && previousAnswers && (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Formulário pré-preenchido com a última inspeção desta unidade (versão{" "}
+                    {lastQuery.data?.version}). Revise e ajuste as respostas antes de salvar.
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">

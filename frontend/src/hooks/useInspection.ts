@@ -34,7 +34,9 @@ export function useInspection({
   const [localThreatLevel, setLocalThreatLevel] = useState(1.0);
   const [observations, setObservations] = useState("");
 
-  // Pré-preencher com última inspeção quando disponível
+  // Pré-preencher com última inspeção quando disponível. Roda de novo sempre
+  // que a lista de respostas anteriores mudar (ex.: ao trocar de unidade),
+  // limpando o formulário quando a unidade selecionada não tem histórico.
   useEffect(() => {
     if (previousAnswers && previousAnswers.length > 0) {
       const prefilled = prefillFromPrevious(previousAnswers);
@@ -46,6 +48,8 @@ export function useInspection({
         });
       }
       setAnswers(newAnswers);
+    } else {
+      setAnswers(new Map());
     }
   }, [previousAnswers]);
 
