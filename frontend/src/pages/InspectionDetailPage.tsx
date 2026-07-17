@@ -1,6 +1,8 @@
-import React from "react";
 import { useParams } from "react-router-dom";
 import { trpc } from "../lib/trpc";
+import { ISIGauge } from "@/components/ISIGauge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 const PRIORITY_LABEL: Record<string, string> = {
   alta: "Alta",
@@ -8,63 +10,103 @@ const PRIORITY_LABEL: Record<string, string> = {
   baixa: "Baixa",
 };
 
+const PRIORITY_ORDER: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
+
 export default function InspectionDetailPage() {
   const { id } = useParams();
-  const query = trpc.inspections.getById.useQuery({ id: Number(id) }, { enabled: !!id, retry: 1 });
+  const query = trpc.inspections.getById.useQuery(
+    { id: Number(id) },
+    { enabled: !!id, retry: 1 }
+  );
 
   if (query.isLoading) return <p>Carregando...</p>;
-  if (query.isError || !query.data) return <p>Não foi possível carregar a inspeção (é preciso estar online).</p>;
+  if (query.isError || !query.data)
+    return <p>Não foi possível carregar a inspeção (é preciso estar online).</p>;
 
   const inspection = query.data;
+  const { score } = inspection;
 
   return (
-    <div>
-      <h1>Inspeção #{inspection.id}</h1>
-      <p>
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold">Inspeção #{inspection.id}</h1>
+        <Badge variant="secondary">Versão {inspection.version}</Badge>
+        {inspection.previousInspectionId && (
+          <Badge variant="outline">substitui inspeção #{inspection.previousInspectionId}</Badge>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">
         Inspetor: {inspection.inspectorName} · Local: {inspection.location || "—"} ·{" "}
         {new Date(inspection.inspectionDate).toLocaleString("pt-BR")}
       </p>
 
-      <div className="compliance-score">
-        ISI: {inspection.score.isi}% — {inspection.score.classification}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <ISIGauge value={score.isi} label="ISI" />
+        <ISIGauge value={score.isiAjustado} label="ISI Ajustado (risco residual)" size="sm" />
+        <ISIGauge value={score.isiProjetado} label="ISI Projetado (potencial)" size="sm" />
       </div>
-      <p>
-        ISI Ajustado (risco residual, considera ameaça local): {inspection.score.isiAjustado}% —{" "}
-        {inspection.score.classificationAjustado} · ISI Projetado (se todas as recomendações forem
-        implementadas): {inspection.score.isiProjetado}% — {inspection.score.classificationProjetado} ·
-        Conformidade simples (sem pesos): {inspection.score.conformidadeSimples}%
-      </p>
-      <p>
-        Fator de unidade aplicado: {inspection.score.unitFactor}× · Nível de ameaça local:{" "}
-        {inspection.score.localThreatLevel}
+
+      <p className="text-sm text-muted-foreground">
+        Conformidade simples (sem pesos): {score.conformidadeSimples}% · Fator de unidade:{" "}
+        {score.unitFactor}× · Nível de ameaça local: {score.localThreatLevel}
       </p>
 
-      <h2>Conformidade por seção</h2>
-      <ul>
-        {inspection.sectionBreakdown.map((s) => (
-          <li key={s.sectionId}>
-            {s.sectionName} (peso {s.weight}): {s.score}%
-          </li>
-        ))}
-      </ul>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Conformidade por seção</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-1 text-sm">
+            {inspection.sectionBreakdown.map((s) => (
+              <li key={s.sectionId} className="flex justify-between border-b py-1">
+                <span>
+                  {s.sectionName}{" "}
+                  <span className="text-muted-foreground">(peso {s.weight})</span>
+                </span>
+                <span className="font-medium">{s.score}%</span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
 
-      <h2>Recomendações ({inspection.recommendations.length})</h2>
-      <ul>
-        {inspection.recommendations
-          .slice()
-          .sort((a, b) => a.priority.localeCompare(b.priority))
-          .map((r) => (
-            <li key={r.id}>
-              <strong>[{PRIORITY_LABEL[r.priority] ?? r.priority}]</strong> {r.recommendationText}
-            </li>
-          ))}
-      </ul>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">
+            Recomendações ({inspection.recommendations.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2 text-sm">
+            {inspection.recommendations
+              .slice()
+              .sort(
+                (a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)
+              )
+              .map((r) => (
+                <li key={r.id}>
+                  <Badge
+                    variant={r.priority === "alta" ? "destructive" : "secondary"}
+                    className="mr-2"
+                  >
+                    {PRIORITY_LABEL[r.priority] ?? r.priority}
+                  </Badge>
+                  {r.recommendationText}
+                </li>
+              ))}
+          </ul>
+        </CardContent>
+      </Card>
 
       {inspection.notes && (
-        <>
-          <h2>Observações gerais</h2>
-          <p>{inspection.notes}</p>
-        </>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Observações gerais</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm">{inspection.notes}</p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -1,336 +1,492 @@
+/**
+ * SDI v4 — Seed Completo
+ * Popula o banco de dados com:
+ * - Usuário admin padrão
+ * - Checklist Residencial (6 seções, 47 itens)
+ * - Checklist MPSC (9 seções, 61 itens — inclui S9 Impactos Climáticos)
+ * - Unidades de exemplo
+ *
+ * Executar: npx ts-node seed.ts
+ */
+
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createConnection } from "mysql2/promise";
 import { eq } from "drizzle-orm";
+import { hashPassword } from "./src/auth";
 import {
+  users,
+  userProfiles,
   checklists,
   sections,
   items,
+  units,
+  inspections,
   answers,
   recommendations,
-  inspections,
-  users,
 } from "./drizzle/schema";
-import { hashPassword } from "./src/auth";
 
-async function main() {
+async function seed() {
   const connection = await createConnection(
     process.env.DATABASE_URL || "mysql://user:password@host:port/database"
   );
   const db = drizzle(connection);
 
-  console.log("Iniciando seed do banco de dados...");
+  console.log("🌱 Iniciando seed SDI v4...");
 
-  // Limpar tabelas existentes respeitando dependências de FK (opcional, para testes)
+  // Limpar dados existentes respeitando dependências de FK.
+  // Usuários são preservados (dedup por e-mail abaixo).
+  console.log("  → Limpando dados anteriores...");
   await db.delete(recommendations);
   await db.delete(answers);
   await db.delete(inspections);
   await db.delete(items);
   await db.delete(sections);
   await db.delete(checklists);
+  await db.delete(units);
 
+  // ─── ADMIN ─────────────────────────────────────────────────────────────────
+
+  console.log("  → Criando usuário admin...");
   const [existingAdmin] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.email, "admin@checklist.local"));
+    .where(eq(users.email, "admin@mpsc.mp.br"));
 
-  if (!existingAdmin) {
-    await db.insert(users).values({
-      email: "admin@checklist.local",
-      passwordHash: hashPassword("troque-esta-senha"),
-      name: "Administrador",
+  let adminId: number;
+  if (existingAdmin) {
+    adminId = existingAdmin.id;
+  } else {
+    const [adminResult] = await db.insert(users).values({
+      email: "admin@mpsc.mp.br",
+      passwordHash: hashPassword("Admin@2026"),
+      name: "Administrador CISI",
       role: "admin",
     });
-    console.log('Usuário admin criado: admin@checklist.local / "troque-esta-senha" (troque em produção)');
+    adminId = adminResult.insertId;
+
+    await db.insert(userProfiles).values({
+      userId: adminId,
+      matricula: "000001",
+      cargo: "Coordenador CISI",
+      lotacao: "CISI - Coordenadoria de Inteligência e Segurança Institucional",
+      comarca: "Florianópolis",
+    });
+    console.log('    Admin criado: admin@mpsc.mp.br / "Admin@2026" (troque em produção)');
   }
 
-  // --- Checklist Residencial ---
-  const [residentialChecklist] = await db.insert(checklists).values({
-    name: "Checklist Residencial",
-    profileType: "residencial",
-    description: "Checklist de segurança para residências.",
-  });
+  // ─── CHECKLIST RESIDENCIAL ─────────────────────────────────────────────────
 
-  const residentialSections = [
-    { sectionOrder: 1, sectionName: "Segurança Perimetral e Acessos Externos" },
-    { sectionOrder: 2, sectionName: "Portas e Acessos Diretos à Residência" },
-    { sectionOrder: 3, sectionName: "Janelas e Outras Aberturas" },
-    { sectionOrder: 4, sectionName: "Sistemas Eletrônicos de Segurança" },
-    { sectionOrder: 5, sectionName: "Iluminação e Visibilidade" },
-    { sectionOrder: 6, sectionName: "Hábitos e Procedimentos de Segurança" },
+  console.log("  → Criando checklist Residencial...");
+  const [residencialResult] = await db.insert(checklists).values({
+    name: "Diagnóstico de Segurança Residencial",
+    profileType: "residencial",
+    description:
+      "Checklist para avaliação de segurança de residências de membros e servidores do MPSC.",
+  });
+  const residencialId = residencialResult.insertId;
+
+  const residencialSections = [
+    {
+      order: 1,
+      name: "Segurança Perimetral",
+      weight: 1,
+      items: [
+        "A residência possui muro, cerca ou grade no perímetro externo?",
+        "A altura do muro/cerca é adequada (mínimo 2,5m)?",
+        "Existe concertina, cerca elétrica ou outro elemento dissuasório no topo?",
+        "O portão de acesso de veículos é automatizado?",
+        "O portão de pedestres possui fechadura de segurança ou controle de acesso?",
+        "Há vegetação alta próxima ao muro que possa facilitar escalada?",
+        "O perímetro está livre de pontos cegos ou áreas sem visibilidade?",
+        "Existe iluminação perimetral ativada por sensor de presença?",
+      ],
+    },
+    {
+      order: 2,
+      name: "Acessos Diretos (Portas)",
+      weight: 1,
+      items: [
+        "A porta principal possui fechadura de alta segurança (tetra ou superior)?",
+        "Existe olho mágico ou câmera na porta principal?",
+        "As dobradiças das portas externas são internas (não removíveis por fora)?",
+        "Há porta de segurança (blindada ou reforçada) em algum acesso?",
+        "As portas dos fundos e laterais possuem trancas adicionais?",
+        "Existe interfone ou vídeo-porteiro para identificação de visitantes?",
+      ],
+    },
+    {
+      order: 3,
+      name: "Janelas e Aberturas",
+      weight: 1,
+      items: [
+        "As janelas do pavimento térreo possuem grades ou telas de segurança?",
+        "As janelas possuem fechos ou travas de segurança internos?",
+        "Há janelas basculantes que permitem acesso quando abertas?",
+        "Os vidros das janelas são temperados ou laminados?",
+        "Existe película de segurança nos vidros do pavimento térreo?",
+      ],
+    },
+    {
+      order: 4,
+      name: "Sistemas Eletrônicos de Segurança",
+      weight: 1,
+      items: [
+        "A residência possui sistema de alarme monitorado?",
+        "Existem câmeras de segurança (CFTV) instaladas?",
+        "As câmeras cobrem todos os acessos (portões, portas, garagem)?",
+        "O sistema de gravação armazena imagens por no mínimo 30 dias?",
+        "Há sensor de presença nas áreas externas?",
+        "O sistema de alarme possui bateria backup (funciona sem energia)?",
+        "Existe botão de pânico ou acionamento silencioso?",
+        "O sistema permite monitoramento remoto (app/celular)?",
+        "Há sensor de abertura em portas e janelas principais?",
+        "O cabeamento do sistema está protegido contra sabotagem?",
+        "Existe sirene externa visível como elemento dissuasório?",
+      ],
+    },
+    {
+      order: 5,
+      name: "Iluminação e Visibilidade",
+      weight: 1,
+      items: [
+        "A iluminação externa cobre toda a frente do imóvel?",
+        "Há iluminação com sensor de presença nas laterais e fundos?",
+        "A garagem possui iluminação adequada?",
+        "A numeração do imóvel é visível para viaturas e serviços de emergência?",
+        "Existe iluminação de emergência (funciona na falta de energia)?",
+      ],
+    },
+    {
+      order: 6,
+      name: "Procedimentos e Hábitos de Segurança",
+      weight: 1,
+      items: [
+        "Os moradores possuem rotinas variáveis de horários de saída/chegada?",
+        "Existe procedimento definido para recebimento de encomendas/entregas?",
+        "Os moradores evitam expor informações pessoais em redes sociais?",
+        "Há procedimento para verificação de identidade de prestadores de serviço?",
+        "Existe plano de evacuação ou ponto de encontro familiar em emergências?",
+        "Os moradores conhecem os números de emergência e contatos de segurança?",
+        "Há cofre para guarda de documentos e objetos de valor?",
+        "As chaves reserva estão guardadas em local seguro (não sob tapete/vaso)?",
+        "Existe comunicação com vizinhos sobre segurança (rede de vigilância)?",
+        "Os veículos são estacionados sempre dentro da garagem?",
+        "Há procedimento para viagens (simulação de presença, recolhimento de correspondência)?",
+        "Os moradores evitam atender desconhecidos sem verificação prévia?",
+      ],
+    },
   ];
 
-  for (const sec of residentialSections) {
-    const [newSection] = await db.insert(sections).values({
-      checklistId: residentialChecklist.insertId,
-      sectionOrder: sec.sectionOrder,
-      sectionName: sec.sectionName,
+  for (const sec of residencialSections) {
+    const [secResult] = await db.insert(sections).values({
+      checklistId: residencialId,
+      sectionOrder: sec.order,
+      sectionName: sec.name,
+      weight: sec.weight,
     });
+    const sectionId = secResult.insertId;
 
-    let sectionItems: { itemText: string; isSubheading?: boolean }[] = [];
-    if (sec.sectionOrder === 1) {
-      sectionItems = [
-        { itemText: "1.1. Muros e Cercas:", isSubheading: true },
-        { itemText: "Altura dos muros/cercas é adequada (superior a 2,5 metros)?" },
-        { itemText: "Existem pontos de escalada fáceis (árvores próximas, texturas, vãos)?" },
-        { itemText: "A estrutura do muro/cerca está em bom estado (sem rachaduras, buracos ou partes soltas)?" },
-        { itemText: "Existem concertinas, cercas elétricas ou outros elementos de proteção de topo?" },
-        { itemText: "1.2. Portões de Garagem:", isSubheading: true },
-        { itemText: "Portões de acesso de veículos são robustos?" },
-        { itemText: "Portões de pedestres possuem fechaduras seguras?" },
-        { itemText: "O portão é automatizado e com controle de acesso seguro (ex. código rolante)?" },
-        { itemText: "O portão possui sistema de travamento manual em caso de falha de energia?" },
-        { itemText: "A estrutura do portão é resistente a arrombamento?" },
-        { itemText: "Existe porta de acesso interna da garagem para a casa? Se sim, é reforçada?" },
-      ];
-    } else if (sec.sectionOrder === 2) {
-      sectionItems = [
-        { itemText: "2.1. Portas Principais e de Serviço:", isSubheading: true },
-        { itemText: "As portas são de material sólido (madeira maciça, aço)?" },
-        { itemText: "As fechaduras são de segurança (ex: tetra, multiponto, digital)?" },
-        { itemText: "Existem fechaduras auxiliares (ex: travas tetra, ferrolhos)?" },
-        { itemText: "As dobradiças estão instaladas pelo lado interno ou possuem pinos de segurança?" },
-        { itemText: "O batente da porta está bem fixado e em bom estado?" },
-        { itemText: "Existe olho mágico ou sistema de vídeo porteiro?" },
-        { itemText: "2.2. Portas de Vidro e Janelas-Porta:", isSubheading: true },
-        { itemText: "O vidro é laminado, temperado ou possui película de segurança?" },
-        { itemText: "As travas são robustas e funcionais?" },
-        { itemText: "Existem travas adicionais para portas de correr (ex: trava-cadeado, pinos)?" },
-      ];
-    } else if (sec.sectionOrder === 3) {
-      sectionItems = [
-        { itemText: "3.1. Janelas em Geral:", isSubheading: true },
-        { itemText: "As janelas do térreo possuem grades de proteção?" },
-        { itemText: "As grades estão bem fixadas (chumbadas na parede)?" },
-        { itemText: "As travas das janelas são eficientes e estão em bom estado?" },
-        { itemText: "Existem janelas em locais de fácil acesso (próximas a telhados, muros, árvores)?" },
-        { itemText: "O vidro das janelas é resistente (laminado ou temperado)?" },
-        { itemText: "3.2. Acessos Superiores:", isSubheading: true },
-        { itemText: "Existem varandas ou sacadas com fácil acesso a partir do exterior?" },
-        { itemText: "Há acesso ao telhado por meio de estruturas vizinhas ou árvores?" },
-        { itemText: "Clarabóias e alçapões estão devidamente travados e protegidos?" },
-      ];
-    } else if (sec.sectionOrder === 4) {
-      sectionItems = [
-        { itemText: "4.1. Alarmes:", isSubheading: true },
-        { itemText: "O imóvel possui sistema de alarme monitorado?" },
-        { itemText: "Os sensores cobrem todas as áreas vulneráveis (portas, janelas, áreas de acesso)?" },
-        { itemText: "A central de alarme está em local protegido e discreto?" },
-        { itemText: "O sistema possui bateria de emergência em caso de falta de energia?" },
-        { itemText: "4.2. Câmeras (CFTV):", isSubheading: true },
-        { itemText: "O sistema de câmeras cobre os principais pontos de acesso e perímetro?" },
-        { itemText: "A qualidade da imagem (resolução) é suficiente para identificação?" },
-        { itemText: "As câmeras possuem visão noturna (infravermelho)?" },
-        { itemText: "O gravador de imagens (DVR/NVR) está em local seguro e protegido?" },
-        { itemText: "O sistema permite acesso remoto para monitoramento?" },
-      ];
-    } else if (sec.sectionOrder === 5) {
-      sectionItems = [
-        { itemText: "5.1. Iluminação Externa:", isSubheading: true },
-        { itemText: "As áreas externas (frente, fundos, laterais) são bem iluminadas à noite?" },
-        { itemText: "Há luzes com sensores de movimento em pontos estratégicos?" },
-        { itemText: "As lâmpadas estão em bom estado de funcionamento?" },
-        { itemText: "5.2. Visibilidade:", isSubheading: true },
-        { itemText: "A vegetação (árvores, arbustos) está aparada e não obstrui a visão de portas e janelas?" },
-        { itemText: "Existem pontos cegos ao redor da propriedade que poderiam ocultar uma pessoa?" },
-      ];
-    } else if (sec.sectionOrder === 6) {
-      sectionItems = [
-        { itemText: "6.1. Comportamento dos Moradores:", isSubheading: true },
-        { itemText: "As portas e janelas são mantidas trancadas, mesmo com pessoas em casa?" },
-        { itemText: 'Há o costume de deixar chaves "escondidas" em locais previsíveis (vasos, debaixo do tapete)?' },
-        { itemText: "O controle de acesso de visitantes e prestadores de serviço é rigoroso?" },
-        { itemText: "Evita-se a exposição de bens de valor visíveis do exterior (TVs, computadores)?" },
-        { itemText: "Há o hábito de divulgar viagens e ausências prolongadas em redes sociais?" },
-        { itemText: "A caixa de correio é esvaziada regularmente?" },
-      ];
-    }
-
-    for (const [idx, item] of sectionItems.entries()) {
+    for (let i = 0; i < sec.items.length; i++) {
       await db.insert(items).values({
-        sectionId: newSection.insertId,
-        itemOrder: idx + 1,
-        itemText: item.itemText,
-        isSubheading: item.isSubheading || false,
+        sectionId,
+        itemOrder: i + 1,
+        itemText: sec.items[i],
+        isSubheading: false,
+        isInverted: false,
       });
     }
   }
 
-  // --- Checklist MPSC ---
-  const [mpscChecklist] = await db.insert(checklists).values({
-    name: "Checklist MPSC - Instalações Físicas",
-    profileType: "mpsc",
-    description: "Checklist de segurança para instalações físicas do Ministério Público de Santa Catarina.",
-  });
+  // ─── CHECKLIST MPSC ────────────────────────────────────────────────────────
 
-  // Pesos por seção (criticidade 2-5), conforme isi-logica-calculo.xlsx / aba "Pesos por Item".
-  const mpscSections = [
-    { sectionOrder: 1, sectionName: "Segurança Perimetral e Acessos Externos", weight: 3 },
-    { sectionOrder: 2, sectionName: "Acessos Diretos à Edificação", weight: 4 },
-    { sectionOrder: 3, sectionName: "Janelas, Aberturas e Acessos Superiores", weight: 3 },
-    { sectionOrder: 4, sectionName: "Sistemas Eletrônicos de Segurança", weight: 4 },
-    { sectionOrder: 5, sectionName: "Iluminação, Visibilidade e Sinalização", weight: 2 },
-    { sectionOrder: 6, sectionName: "Segurança Contra Incêndio e Emergências", weight: 5 },
-    { sectionOrder: 7, sectionName: "Segurança da Informação e Acervo", weight: 5 },
-    { sectionOrder: 8, sectionName: "Procedimentos Operacionais e Cultura de Segurança", weight: 2 },
+  console.log("  → Criando checklist MPSC...");
+  const [mpscResult] = await db.insert(checklists).values({
+    name: "Diagnóstico de Segurança - Unidades MPSC",
+    profileType: "mpsc",
+    description:
+      "Checklist para avaliação de segurança das instalações físicas do Ministério Público de Santa Catarina.",
+  });
+  const mpscId = mpscResult.insertId;
+
+  interface MpscItem {
+    text: string;
+    isSubheading?: boolean;
+    isInverted?: boolean;
+  }
+
+  const mpscSections: {
+    order: number;
+    name: string;
+    weight: number;
+    items: MpscItem[];
+  }[] = [
+    {
+      order: 1,
+      name: "Segurança Perimetral",
+      weight: 4,
+      items: [
+        { text: "A edificação possui barreira perimetral (muro, grade ou cerca) em todo o perímetro?" },
+        { text: "A barreira perimetral possui altura mínima de 2,5 metros?" },
+        { text: "Existe elemento dissuasório no topo (concertina, cerca elétrica, lanças)?" },
+        { text: "O portão de acesso de veículos é automatizado com controle de acesso?" },
+        { text: "Há portaria ou recepção com controle de entrada de pessoas?" },
+        { text: "O perímetro está livre de vegetação alta que facilite escalada ou ocultação?" },
+        { text: "Existem pontos cegos no perímetro sem cobertura visual ou eletrônica?" },
+        { text: "A iluminação perimetral é adequada e possui acionamento automático (sensor/timer)?" },
+      ],
+    },
+    {
+      order: 2,
+      name: "Acessos Diretos (Portas e Entradas)",
+      weight: 5,
+      items: [
+        { text: "As portas de acesso principal possuem fechaduras de alta segurança?" },
+        { text: "Existe controle de acesso eletrônico (crachá, biometria, senha) nas entradas?" },
+        { text: "As portas de emergência possuem barra antipânico e alarme de abertura?" },
+        { text: "Há registro (log) de entrada e saída de pessoas no edifício?" },
+        { text: "As áreas restritas (gabinetes, arquivo, TI) possuem controle de acesso diferenciado?" },
+        { text: "Existe procedimento formal para controle de visitantes (identificação, registro, acompanhamento)?" },
+      ],
+    },
+    {
+      order: 3,
+      name: "Janelas e Aberturas",
+      weight: 3,
+      items: [
+        { text: "As janelas do pavimento térreo possuem grades, telas ou películas de segurança?" },
+        { text: "As janelas possuem fechos ou travas de segurança internos?" },
+        { text: "Os vidros são temperados ou laminados (resistentes a impacto)?" },
+        { text: "Há aberturas (basculantes, exaustores) que permitam acesso não autorizado?" },
+        { text: "As janelas de áreas sensíveis (arquivo, TI, gabinetes) possuem proteção reforçada?" },
+      ],
+    },
+    {
+      order: 4,
+      name: "Sistemas Eletrônicos de Segurança",
+      weight: 5,
+      items: [
+        { text: "A unidade possui sistema de CFTV (câmeras) em funcionamento?" },
+        { text: "As câmeras cobrem todos os acessos, corredores e áreas comuns?" },
+        { text: "O sistema de gravação armazena imagens por no mínimo 30 dias?" },
+        { text: "Existe sistema de alarme monitorado 24h?" },
+        { text: "O sistema de alarme possui bateria backup (funciona sem energia elétrica)?" },
+        { text: "Há botão de pânico ou acionamento silencioso disponível?" },
+        { text: "Existe sensor de presença em áreas críticas (após expediente)?" },
+        { text: "O sistema permite monitoramento remoto pela CISI ou empresa contratada?" },
+        { text: "Há controle de acesso eletrônico integrado ao sistema de segurança?" },
+        { text: "O cabeamento dos sistemas está protegido contra sabotagem (em eletrodutos)?" },
+        { text: "Existe nobreak ou gerador que garanta funcionamento dos sistemas em falta de energia?" },
+      ],
+    },
+    {
+      order: 5,
+      name: "Iluminação e Sinalização",
+      weight: 3,
+      items: [
+        { text: "A iluminação externa cobre toda a fachada e acessos do edifício?" },
+        { text: "Há iluminação com sensor de presença nas áreas de estacionamento?" },
+        { text: "A sinalização de emergência (rotas de fuga, saídas) está visível e atualizada?" },
+        { text: "Existe iluminação de emergência autônoma nos corredores e escadas?" },
+        { text: "A identificação do prédio (placa, número) é visível para serviços de emergência?" },
+      ],
+    },
+    {
+      order: 6,
+      name: "Segurança Contra Incêndio",
+      weight: 4,
+      items: [
+        { text: "A edificação possui AVCB/CLCB (Auto de Vistoria do Corpo de Bombeiros) válido?" },
+        { text: "Os extintores estão dentro da validade, sinalizados e desobstruídos?" },
+        { text: "Existe sistema de hidrantes ou sprinklers conforme exigência do CBMSC?" },
+        { text: "Há detectores de fumaça instalados nas áreas críticas?" },
+        { text: "As rotas de fuga estão desobstruídas e sinalizadas com fotoluminescência?" },
+        { text: "A brigada de incêndio está constituída e treinada (ou há responsável designado)?" },
+      ],
+    },
+    {
+      order: 7,
+      name: "Segurança da Informação (Física)",
+      weight: 4,
+      items: [
+        { text: "A sala de servidores/rack de TI possui controle de acesso restrito?" },
+        { text: "Há sistema de climatização adequado na sala de TI (temperatura controlada)?" },
+        { text: "O cabeamento de rede está organizado, identificado e protegido?" },
+        { text: "Existe política de mesa limpa e tela bloqueada implementada?" },
+      ],
+    },
+    {
+      order: 8,
+      name: "Procedimentos Operacionais de Segurança",
+      weight: 5,
+      items: [
+        { text: "Existe Plano de Segurança Orgânica (PSO) formalizado para a unidade?" },
+        { text: "Há procedimento escrito para situações de emergência (ameaça, invasão, incêndio)?" },
+        { text: "Os servidores receberam treinamento ou orientação sobre segurança institucional?" },
+        { text: "Existe canal de comunicação direto com a CISI ou segurança institucional?" },
+        { text: "Há ronda ou vigilância patrimonial (própria ou terceirizada) na unidade?" },
+        { text: "O controle de chaves é formalizado (registro de quem possui cópia)?" },
+        { text: "Existe procedimento para abertura e fechamento da unidade (checklist diário)?" },
+        { text: "Há registro de ocorrências de segurança (livro ou sistema eletrônico)?" },
+      ],
+    },
+    {
+      order: 9,
+      name: "Impactos Climáticos e Ambientais",
+      weight: 4,
+      items: [
+        // 9.1 Inundações e Alagamentos
+        { text: "9.1. Inundações e Alagamentos", isSubheading: true },
+        {
+          text: "O entorno imediato e as vias de acesso à edificação possuem histórico de alagamentos que dificultam ou impedem a chegada ao local?",
+          isInverted: true,
+        },
+        {
+          text: "A edificação possui histórico de inundação ou alagamento que tenha atingido o seu interior?",
+          isInverted: true,
+        },
+        {
+          text: "A edificação dispõe de mecanismos físicos para mitigar a entrada de água (ex: nível do piso elevado em relação à rua, comportas, bombas de sucção ou escoamento eficiente)?",
+        },
+        {
+          text: "Os ativos críticos de TI (racks, switches, servidores locais) estão posicionados em andares superiores ou fixados em locais elevados (ex: próximos ao teto) para evitar danos por lâmina d'água?",
+        },
+        {
+          text: "O acervo documental (arquivos físicos) está armazenado de forma segura contra inundações (em andares superiores ou sobre estrados/prateleiras elevadas)?",
+        },
+        // 9.2 Riscos Geológicos e do Entorno
+        { text: "9.2. Riscos Geológicos e do Entorno", isSubheading: true },
+        {
+          text: "A edificação está localizada em encosta, área de risco geológico mapeada (Defesa Civil) ou apresenta vulnerabilidades no entorno imediato (ex: risco de deslizamento, desmoronamento de muros de arrimo ou queda de árvores de grande porte)?",
+          isInverted: true,
+        },
+        // 9.3 Riscos Atmosféricos e Estruturais
+        { text: "9.3. Riscos Atmosféricos e Estruturais", isSubheading: true },
+        {
+          text: "A edificação apresenta vulnerabilidade aparente ou histórico de danos estruturais causados por ventos fortes e ciclones extratropicais (ex: destelhamentos recorrentes, quebra de vidraças)?",
+          isInverted: true,
+        },
+        {
+          text: "A edificação possui Sistema de Proteção contra Descargas Atmosféricas (SPDA - Para-raios) instalado e aterramento adequado para proteger a infraestrutura elétrica e de dados?",
+        },
+      ],
+    },
   ];
 
   for (const sec of mpscSections) {
-    const [newSection] = await db.insert(sections).values({
-      checklistId: mpscChecklist.insertId,
-      sectionOrder: sec.sectionOrder,
-      sectionName: sec.sectionName,
+    const [secResult] = await db.insert(sections).values({
+      checklistId: mpscId,
+      sectionOrder: sec.order,
+      sectionName: sec.name,
       weight: sec.weight,
     });
+    const sectionId = secResult.insertId;
 
-    let sectionItems: { itemText: string; isSubheading?: boolean }[] = [];
-    if (sec.sectionOrder === 1) {
-      sectionItems = [
-        { itemText: "S1.1 - Controle de Perímetro", isSubheading: true },
-        { itemText: "A edificação possui barreiras físicas adequadas (muros, grades, cercas) em todo o perímetro?" },
-        { itemText: "As barreiras físicas estão em bom estado de conservação (sem rachaduras, buracos ou partes soltas)?" },
-        { itemText: "Existem elementos de proteção de topo (concertinas, cercas elétricas) onde aplicável?" },
-        { itemText: "O perímetro é monitorado por câmeras de segurança (CFTV)?" },
-        { itemText: "Existem pontos de vulnerabilidade no perímetro (árvores próximas, estruturas que facilitam escalada)?" },
-        { itemText: "S1.2 - Portões e Acessos de Veículos", isSubheading: true },
-        { itemText: "Os portões de acesso de veículos são robustos e em bom estado?" },
-        { itemText: "O portão é automatizado com controle de acesso seguro (ex: código rolante, cartão)?" },
-        { itemText: "O portão possui sistema de travamento manual em caso de falha de energia?" },
-        { itemText: "Existe controle de entrada e saída de veículos (registro, identificação)?" },
-        { itemText: "O estacionamento possui iluminação adequada e vigilância?" },
-        { itemText: "S1.3 - Portões e Acessos de Pedestres", isSubheading: true },
-        { itemText: "Os acessos de pedestres possuem fechaduras seguras e controle de acesso?" },
-        { itemText: "Existe portaria com identificação obrigatória de visitantes?" },
-        { itemText: "O fluxo de entrada e saída de pessoas é controlado e monitorado?" },
-        { itemText: "Existe separação entre acesso de público e acesso de membros/servidores?" },
-      ];
-    } else if (sec.sectionOrder === 2) {
-      sectionItems = [
-        { itemText: "S2.1 - Portas Principais e de Serviço", isSubheading: true },
-        { itemText: "As portas externas são de material sólido e resistente (madeira maciça, aço, vidro blindado)?" },
-        { itemText: "As fechaduras são de segurança (tetra, multiponto, digital)?" },
-        { itemText: "Existem fechaduras auxiliares (travas tetra, ferrolhos)?" },
-        { itemText: "As dobradiças estão instaladas pelo lado interno ou possuem pinos de segurança?" },
-        { itemText: "Os batentes estão bem fixados e em bom estado?" },
-        { itemText: "Existe sistema de vídeo porteiro ou interfone nas entradas?" },
-        { itemText: "S2.2 - Portas de Vidro e Acessos Especiais", isSubheading: true },
-        { itemText: "O vidro das portas é laminado, temperado ou possui película de segurança?" },
-        { itemText: "As travas das portas de vidro são robustas e funcionais?" },
-        { itemText: "Existem travas adicionais para portas de correr?" },
-        { itemText: "Portas de emergência possuem barra antipânico e alarme?" },
-      ];
-    } else if (sec.sectionOrder === 3) {
-      sectionItems = [
-        { itemText: "S3.1 - Janelas em Geral", isSubheading: true },
-        { itemText: "As janelas do térreo e andares acessíveis possuem grades de proteção?" },
-        { itemText: "As grades estão bem fixadas (chumbadas na parede)?" },
-        { itemText: "As travas das janelas são eficientes e estão em bom estado?" },
-        { itemText: "Existem janelas em locais de fácil acesso externo (próximas a telhados, muros, árvores)?" },
-        { itemText: "S3.2 - Acessos Superiores e Cobertura", isSubheading: true },
-        { itemText: "O vidro das janelas é resistente (laminado ou temperado)?" },
-        { itemText: "Existem varandas ou sacadas com fácil acesso a partir do exterior?" },
-        { itemText: "Há acesso ao telhado por meio de estruturas vizinhas ou árvores?" },
-        { itemText: "Claraboias e alçapões estão devidamente travados e protegidos?" },
-        { itemText: "A cobertura/telhado está em bom estado e sem pontos de acesso vulneráveis?" },
-      ];
-    } else if (sec.sectionOrder === 4) {
-      sectionItems = [
-        { itemText: "S4.1 - Sistema de Alarme", isSubheading: true },
-        { itemText: "O imóvel possui sistema de alarme monitorado?" },
-        { itemText: "Os sensores cobrem todas as áreas vulneráveis (portas, janelas, áreas de acesso)?" },
-        { itemText: "A central de alarme está em local protegido e discreto?" },
-        { itemText: "O sistema possui bateria de emergência em caso de falta de energia?" },
-        { itemText: "O alarme está integrado com a central de monitoramento da CISI ou empresa de segurança?" },
-        { itemText: "S4.2 - Câmeras de Segurança (CFTV)", isSubheading: true },
-        { itemText: "O sistema de câmeras cobre os principais pontos de acesso e perímetro?" },
-        { itemText: "A qualidade da imagem (resolução) é suficiente para identificação de pessoas?" },
-        { itemText: "As câmeras possuem visão noturna (infravermelho)?" },
-        { itemText: "O gravador de imagens (DVR/NVR) está em local seguro e protegido?" },
-        { itemText: "O sistema permite acesso remoto para monitoramento?" },
-        { itemText: "As gravações são armazenadas por período adequado (mínimo 30 dias)?" },
-        { itemText: "S4.3 - Controle de Acesso Eletrônico", isSubheading: true },
-        { itemText: "Existe sistema de controle de acesso eletrônico (biometria, cartão, senha)?" },
-        { itemText: "O sistema registra logs de entrada e saída?" },
-        { itemText: "Áreas restritas (arquivo, TI, sala de cofre) possuem controle de acesso adicional?" },
-        { itemText: "Existe pórtico detector de metais na entrada principal?" },
-        { itemText: "Existe esteira de Raio X para inspeção de volumes?" },
-      ];
-    } else if (sec.sectionOrder === 5) {
-      sectionItems = [
-        { itemText: "S5.1 - Iluminação Externa", isSubheading: true },
-        { itemText: "As áreas externas (frente, fundos, laterais) são bem iluminadas à noite?" },
-        { itemText: "Há luzes com sensores de movimento em pontos estratégicos?" },
-        { itemText: "As lâmpadas estão em bom estado de funcionamento?" },
-        { itemText: "A iluminação de emergência está instalada e funcional?" },
-        { itemText: "S5.2 - Visibilidade e Sinalização", isSubheading: true },
-        { itemText: "A vegetação está aparada e não obstrui a visão de portas, janelas e câmeras?" },
-        { itemText: "Existem pontos cegos ao redor da propriedade que poderiam ocultar uma pessoa?" },
-        { itemText: "A sinalização de segurança (saídas de emergência, extintores, rotas de fuga) está visível e atualizada?" },
-        { itemText: "Existe sinalização de áreas restritas e de acesso controlado?" },
-      ];
-    } else if (sec.sectionOrder === 6) {
-      sectionItems = [
-        { itemText: "S6.1 - Equipamentos de Combate a Incêndio", isSubheading: true },
-        { itemText: "Existem extintores de incêndio em quantidade e tipo adequados?" },
-        { itemText: "Os extintores estão dentro do prazo de validade e com manutenção em dia?" },
-        { itemText: "Existem hidrantes ou mangueiras de incêndio instalados e funcionais?" },
-        { itemText: "O sistema de detecção de fumaça/incêndio está instalado e funcional?" },
-        { itemText: "S6.2 - Plano de Emergência", isSubheading: true },
-        { itemText: "Existe plano de emergência e evacuação documentado e atualizado?" },
-        { itemText: "As rotas de fuga estão sinalizadas e desobstruídas?" },
-        { itemText: "São realizados simulados de evacuação periodicamente?" },
-        { itemText: "Existe brigada de incêndio formada e treinada?" },
-        { itemText: "Os números de emergência estão visíveis e acessíveis?" },
-      ];
-    } else if (sec.sectionOrder === 7) {
-      sectionItems = [
-        { itemText: "S7.1 - Proteção de Dados e Documentos", isSubheading: true },
-        { itemText: "Documentos sigilosos são armazenados em locais seguros (cofres, armários trancados)?" },
-        { itemText: "Existe política de mesa limpa (documentos não ficam expostos)?" },
-        { itemText: "O descarte de documentos sigilosos é feito de forma segura (fragmentadora)?" },
-        { itemText: "Existe controle de acesso a áreas de arquivo e acervo documental?" },
-        { itemText: "S7.2 - Infraestrutura de TI", isSubheading: true },
-        { itemText: "A sala de servidores/equipamentos de TI possui controle de acesso restrito?" },
-        { itemText: "Existe sistema de climatização adequado na sala de TI?" },
-        { itemText: "Existe no-break e gerador para equipamentos críticos?" },
-        { itemText: "Os cabos de rede e energia estão organizados e protegidos?" },
-      ];
-    } else if (sec.sectionOrder === 8) {
-      sectionItems = [
-        { itemText: "S8.1 - Procedimentos de Segurança", isSubheading: true },
-        { itemText: "Existe manual de procedimentos de segurança atualizado e disponível?" },
-        { itemText: "Os servidores da portaria/recepção possuem treinamento em segurança?" },
-        { itemText: "Existe procedimento padrão para recebimento de correspondências e encomendas?" },
-        { itemText: "Há protocolo para situações de ameaça (bomba, invasão, refém)?" },
-        { itemText: "Existe procedimento para controle de chaves e acessos?" },
-        { itemText: "S8.2 - Vigilância e Rondas", isSubheading: true },
-        { itemText: "Existe serviço de vigilância patrimonial (próprio ou terceirizado)?" },
-        { itemText: "São realizadas rondas periódicas nas instalações?" },
-        { itemText: "Existe posto de vigilância com visão privilegiada dos acessos?" },
-        { itemText: "O serviço de vigilância opera 24 horas, inclusive em fins de semana e feriados?" },
-        { itemText: "S8.3 - Cultura de Segurança", isSubheading: true },
-        { itemText: "Os membros e servidores conhecem os procedimentos básicos de segurança?" },
-        { itemText: "Existem campanhas ou treinamentos periódicos de conscientização em segurança?" },
-        { itemText: "Há canal para reporte de incidentes ou vulnerabilidades de segurança?" },
-        { itemText: "A liderança local demonstra engajamento com as questões de segurança?" },
-      ];
-    }
-
-    for (const [idx, item] of sectionItems.entries()) {
+    let itemOrder = 0;
+    for (const item of sec.items) {
+      itemOrder++;
       await db.insert(items).values({
-        sectionId: newSection.insertId,
-        itemOrder: idx + 1,
-        itemText: item.itemText,
-        isSubheading: item.isSubheading || false,
+        sectionId,
+        itemOrder,
+        itemText: item.text,
+        isSubheading: item.isSubheading ?? false,
+        isInverted: item.isInverted ?? false,
       });
     }
   }
 
-  console.log("Seed concluído com sucesso!");
+  // ─── UNIDADES DE EXEMPLO ───────────────────────────────────────────────────
+
+  console.log("  → Criando unidades de exemplo...");
+  const unitData = [
+    {
+      name: "Promotoria de Justiça de São Joaquim",
+      code: "PJ-SJQ",
+      type: "Isolada" as const,
+      status: "ativa" as const,
+      comarca: "São Joaquim",
+      isIsolated: true,
+      distanceFromSede: "120.50",
+    },
+    {
+      name: "Promotoria de Justiça de Bom Jardim da Serra",
+      code: "PJ-BJS",
+      type: "Isolada" as const,
+      status: "ativa" as const,
+      comarca: "São Joaquim",
+      isIsolated: true,
+      distanceFromSede: "145.00",
+    },
+    {
+      name: "GAECO - Florianópolis",
+      code: "GAECO-FLN",
+      type: "GAECO" as const,
+      status: "ativa" as const,
+      comarca: "Florianópolis",
+      isIsolated: false,
+      distanceFromSede: "0.00",
+    },
+    {
+      name: "Promotoria de Justiça de Anita Garibaldi",
+      code: "PJ-ANG",
+      type: "Isolada" as const,
+      status: "ativa" as const,
+      comarca: "Campos Novos",
+      isIsolated: true,
+      distanceFromSede: "95.30",
+    },
+    {
+      name: "Sede Administrativa - Florianópolis",
+      code: "SEDE-FLN",
+      type: "Administrativo" as const,
+      status: "ativa" as const,
+      comarca: "Florianópolis",
+      isIsolated: false,
+      distanceFromSede: "0.00",
+    },
+    {
+      name: "Promotoria de Justiça de Urupema",
+      code: "PJ-URP",
+      type: "Isolada" as const,
+      status: "em_comissionamento" as const,
+      comarca: "São Joaquim",
+      isIsolated: true,
+      distanceFromSede: "130.00",
+    },
+    {
+      name: "Promotoria de Justiça de Ponte Serrada",
+      code: "PJ-PTS",
+      type: "Isolada" as const,
+      status: "ativa" as const,
+      comarca: "Joaçaba",
+      isIsolated: true,
+      distanceFromSede: "85.70",
+    },
+    {
+      name: "Fórum de Justiça - Blumenau (Ala MPSC)",
+      code: "FJ-BLU-MPSC",
+      type: "Fórum de Justiça - Ala" as const,
+      status: "ativa" as const,
+      comarca: "Blumenau",
+      isIsolated: false,
+      distanceFromSede: "0.00",
+    },
+  ];
+
+  for (const unit of unitData) {
+    await db.insert(units).values(unit);
+  }
+
+  console.log("✅ Seed concluído com sucesso!");
+  console.log("   • 1 usuário admin");
+  console.log("   • 1 checklist Residencial (6 seções, 47 itens)");
+  console.log("   • 1 checklist MPSC (9 seções, 61 itens + 3 subcabeçalhos)");
+  console.log("   • 8 unidades de exemplo");
   await connection.end();
+  process.exit(0);
 }
 
-main().catch((err) => {
-  console.error("Erro durante o seed:", err);
+seed().catch((err) => {
+  console.error("❌ Erro no seed:", err);
   process.exit(1);
 });

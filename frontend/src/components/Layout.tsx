@@ -13,6 +13,7 @@ export default function Layout() {
         <Link to={`/checklist/${profileType}/new`}>Nova Inspeção</Link>
         <Link to={`/checklist/${profileType}/inspections`}>Inspeções</Link>
         <Link to={`/checklist/${profileType}/analytics`}>Análise</Link>
+        {profileType === "mpsc" && <Link to={`/checklist/${profileType}/units`}>Unidades</Link>}
         <span style={{ marginLeft: "auto" }}>
           {name ? `${name} · ` : ""}
           {name && (

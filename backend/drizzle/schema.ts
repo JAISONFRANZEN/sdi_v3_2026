@@ -11,6 +11,8 @@ import {
 } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
 
+// ─── USERS ───────────────────────────────────────────────────────────────────
+
 export const users = mysqlTable(
   "users",
   {
@@ -18,8 +20,6 @@ export const users = mysqlTable(
     email: varchar("email", { length: 255 }).notNull(),
     passwordHash: varchar("password_hash", { length: 255 }).notNull(),
     name: varchar("name", { length: 255 }).notNull(),
-    // admin: acesso total. inspetor_mpsc: cria/edita inspeções MPSC.
-    // usuario_residencial: cria/edita inspeções residenciais.
     role: mysqlEnum("role", ["admin", "inspetor_mpsc", "usuario_residencial"])
       .notNull()
       .default("usuario_residencial"),
@@ -30,55 +30,30 @@ export const users = mysqlTable(
   })
 );
 
-export const checklists = mysqlTable("checklists", {
-  id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  profileType: mysqlEnum("profile_type", ["residencial", "mpsc"]).notNull(),
-  description: text("description"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+// ─── USER PROFILES (perfil expandido — integração futura com RH) ─────────────
 
-export const sections = mysqlTable("sections", {
+export const userProfiles = mysqlTable("user_profiles", {
   id: int("id").autoincrement().primaryKey(),
-  checklistId: int("checklist_id")
-    .references(() => checklists.id)
-    .notNull(),
-  sectionOrder: int("section_order").notNull(),
-  sectionName: varchar("section_name", { length: 255 }).notNull(),
-  description: text("description"),
-  // Criticidade da seção (2 a 5) conforme metodologia ISI. Seções sem peso
-  // definido (ex.: Residencial) usam 1, o que reduz a fórmula do ISI à média
-  // simples de conformidade.
-  weight: int("weight").notNull().default(1),
-});
-
-export const items = mysqlTable("items", {
-  id: int("id").autoincrement().primaryKey(),
-  sectionId: int("section_id")
-    .references(() => sections.id)
-    .notNull(),
-  itemOrder: int("item_order").notNull(),
-  itemText: text("item_text").notNull(),
-  isSubheading: boolean("is_subheading").default(false),
-});
-
-export const inspections = mysqlTable("inspections", {
-  id: int("id").autoincrement().primaryKey(),
-  // uuid gerado no cliente offline; permite reconciliar duplicidade ao sincronizar
-  clientUuid: varchar("client_uuid", { length: 36 }).notNull(),
-  checklistId: int("checklist_id")
-    .references(() => checklists.id)
-    .notNull(),
   userId: int("user_id")
     .references(() => users.id)
-    .notNull(),
-  inspectorName: varchar("inspector_name", { length: 255 }).notNull(),
-  inspectionDate: timestamp("inspection_date").defaultNow().notNull(),
-  location: varchar("location", { length: 255 }),
-  // Conforme "Fatores Unidade" (isi-logica-calculo.xlsx): cada tipo tem um
-  // FatorUnidade (0.5-1.5) aplicado ao ISI. "Residência" é específico do
-  // perfil Residencial e usa fator neutro (1.0).
-  unitType: mysqlEnum("unit_type", [
+    .notNull()
+    .unique(),
+  matricula: varchar("matricula", { length: 50 }),
+  cargo: varchar("cargo", { length: 255 }),
+  lotacao: varchar("lotacao", { length: 255 }),
+  comarca: varchar("comarca", { length: 255 }),
+  telefone: varchar("telefone", { length: 20 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── UNITS (cadastro dinâmico de unidades) ───────────────────────────────────
+
+export const units = mysqlTable("units", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  code: varchar("code", { length: 50 }),
+  type: mysqlEnum("type", [
     "GAECO",
     "Isolada",
     "Administrativo",
@@ -89,17 +64,104 @@ export const inspections = mysqlTable("inspections", {
     "Terreno",
     "Residência",
     "Outro",
-  ]),
-  // NívelAmeaçaLocal da fórmula ISI (1.0 a 2.0). Quanto maior, menor o score
-  // ajustado. Preenchido pelo inspetor; default neutro = 1.0.
-  localThreatLevel: decimal("local_threat_level", { precision: 3, scale: 2 })
+  ]).notNull(),
+  status: mysqlEnum("status", ["ativa", "inativa", "em_comissionamento"])
     .notNull()
-    .default("1.00"),
-  notes: text("notes"),
+    .default("ativa"),
+  comarca: varchar("comarca", { length: 255 }),
+  endereco: text("endereco"),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
+  isIsolated: boolean("is_isolated").default(false),
+  distanceFromSede: decimal("distance_from_sede", { precision: 6, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (table) => ({
-  clientUuidIdx: uniqueIndex("inspections_client_uuid_idx").on(table.clientUuid),
-}));
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── CHECKLISTS ──────────────────────────────────────────────────────────────
+
+export const checklists = mysqlTable("checklists", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  profileType: mysqlEnum("profile_type", ["residencial", "mpsc"]).notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── SECTIONS ────────────────────────────────────────────────────────────────
+
+export const sections = mysqlTable("sections", {
+  id: int("id").autoincrement().primaryKey(),
+  checklistId: int("checklist_id")
+    .references(() => checklists.id)
+    .notNull(),
+  sectionOrder: int("section_order").notNull(),
+  sectionName: varchar("section_name", { length: 255 }).notNull(),
+  description: text("description"),
+  weight: int("weight").notNull().default(1),
+});
+
+// ─── ITEMS ───────────────────────────────────────────────────────────────────
+
+export const items = mysqlTable("items", {
+  id: int("id").autoincrement().primaryKey(),
+  sectionId: int("section_id")
+    .references(() => sections.id)
+    .notNull(),
+  itemOrder: int("item_order").notNull(),
+  itemText: text("item_text").notNull(),
+  isSubheading: boolean("is_subheading").default(false),
+  // NOVO: indica que a pontuação é invertida (Sim=0, Não=1)
+  isInverted: boolean("is_inverted").default(false),
+});
+
+// ─── INSPECTIONS (com versionamento) ─────────────────────────────────────────
+
+export const inspections = mysqlTable(
+  "inspections",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    clientUuid: varchar("client_uuid", { length: 36 }).notNull(),
+    checklistId: int("checklist_id")
+      .references(() => checklists.id)
+      .notNull(),
+    userId: int("user_id")
+      .references(() => users.id)
+      .notNull(),
+    // NOVO: referência à unidade cadastrada
+    unitId: int("unit_id").references(() => units.id),
+    inspectorName: varchar("inspector_name", { length: 255 }).notNull(),
+    inspectionDate: timestamp("inspection_date").defaultNow().notNull(),
+    location: varchar("location", { length: 255 }),
+    unitType: mysqlEnum("unit_type", [
+      "GAECO",
+      "Isolada",
+      "Administrativo",
+      "Apoio Técnico",
+      "Fórum de Justiça",
+      "Fórum de Justiça - Ala",
+      "Fórum de Justiça - Sala de apoio",
+      "Terreno",
+      "Residência",
+      "Outro",
+    ]),
+    localThreatLevel: decimal("local_threat_level", { precision: 3, scale: 2 })
+      .notNull()
+      .default("1.00"),
+    // NOVO: versionamento
+    version: int("version").notNull().default(1),
+    previousInspectionId: int("previous_inspection_id"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    clientUuidIdx: uniqueIndex("inspections_client_uuid_idx").on(
+      table.clientUuid
+    ),
+  })
+);
+
+// ─── ANSWERS ─────────────────────────────────────────────────────────────────
 
 export const answers = mysqlTable("answers", {
   id: int("id").autoincrement().primaryKey(),
@@ -113,6 +175,8 @@ export const answers = mysqlTable("answers", {
   observations: text("observations"),
 });
 
+// ─── RECOMMENDATIONS ─────────────────────────────────────────────────────────
+
 export const recommendations = mysqlTable("recommendations", {
   id: int("id").autoincrement().primaryKey(),
   inspectionId: int("inspection_id")
@@ -121,6 +185,27 @@ export const recommendations = mysqlTable("recommendations", {
   recommendationText: text("recommendation_text").notNull(),
   priority: mysqlEnum("priority", ["alta", "media", "baixa"]).notNull(),
 });
+
+// ─── RELATIONS ───────────────────────────────────────────────────────────────
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+  profile: one(userProfiles, {
+    fields: [users.id],
+    references: [userProfiles.userId],
+  }),
+  inspections: many(inspections),
+}));
+
+export const userProfilesRelations = relations(userProfiles, ({ one }) => ({
+  user: one(users, {
+    fields: [userProfiles.userId],
+    references: [users.id],
+  }),
+}));
+
+export const unitsRelations = relations(units, ({ many }) => ({
+  inspections: many(inspections),
+}));
 
 export const checklistsRelations = relations(checklists, ({ many }) => ({
   sections: many(sections),
@@ -152,6 +237,10 @@ export const inspectionsRelations = relations(inspections, ({ one, many }) => ({
     fields: [inspections.userId],
     references: [users.id],
   }),
+  unit: one(units, {
+    fields: [inspections.unitId],
+    references: [units.id],
+  }),
   answers: many(answers),
   recommendations: many(recommendations),
 }));
@@ -167,9 +256,12 @@ export const answersRelations = relations(answers, ({ one }) => ({
   }),
 }));
 
-export const recommendationsRelations = relations(recommendations, ({ one }) => ({
-  inspection: one(inspections, {
-    fields: [recommendations.inspectionId],
-    references: [inspections.id],
-  }),
-}));
+export const recommendationsRelations = relations(
+  recommendations,
+  ({ one }) => ({
+    inspection: one(inspections, {
+      fields: [recommendations.inspectionId],
+      references: [inspections.id],
+    }),
+  })
+);

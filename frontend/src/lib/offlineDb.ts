@@ -14,6 +14,7 @@ export interface LocalInspection {
   profileType: "residencial" | "mpsc";
   inspectorName: string;
   location?: string;
+  unitId?: number;
   unitType?: string;
   localThreatLevel?: number;
   notes?: string;

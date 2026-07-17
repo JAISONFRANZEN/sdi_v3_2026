@@ -1,29 +1,84 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { trpc } from "../lib/trpc";
 import { useAuth } from "../lib/authContext";
 import { useOnlineStatus } from "../lib/useOnlineStatus";
-import { cacheChecklistIndex, getCachedChecklistIndex, resolveChecklistId } from "../lib/checklistIndex";
-import { cacheChecklist, getCachedChecklist, saveInspectionLocally, type AnswerStatus } from "../lib/offlineDb";
-import SectionCard, { type ChecklistSection } from "../components/SectionCard";
+import {
+  cacheChecklistIndex,
+  getCachedChecklistIndex,
+  resolveChecklistId,
+} from "../lib/checklistIndex";
+import {
+  cacheChecklist,
+  getCachedChecklist,
+  saveInspectionLocally,
+} from "../lib/offlineDb";
+import { InspectionForm } from "@/components/InspectionForm";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { THREAT_LEVELS } from "@/constants/security-weights";
+import type { ChecklistFull, InspectionFormData, Unit } from "@/types/inspection";
 
-const UNIT_TYPES = [
-  "GAECO",
-  "Isolada",
-  "Administrativo",
-  "Apoio Técnico",
-  "Fórum de Justiça",
-  "Fórum de Justiça - Ala",
-  "Fórum de Justiça - Sala de apoio",
-  "Terreno",
-  "Outro",
-] as const;
-
-interface ChecklistFull {
+// O backend expõe sectionName/itemText (nomes das colunas); o pacote de
+// componentes v4 espera name/text. Este adaptador converte a resposta da API
+// (ou o cache offline) para o formato dos componentes.
+interface BackendChecklist {
   id: number;
   name: string;
   profileType: "residencial" | "mpsc";
-  sections: ChecklistSection[];
+  description: string | null;
+  createdAt: string | Date;
+  sections: {
+    id: number;
+    checklistId: number;
+    sectionOrder: number;
+    sectionName: string;
+    weight: number;
+    items: {
+      id: number;
+      sectionId: number;
+      itemOrder: number;
+      itemText: string;
+      isSubheading: boolean | null;
+      isInverted: boolean | null;
+    }[];
+  }[];
+}
+
+function adaptChecklist(raw: BackendChecklist): ChecklistFull {
+  return {
+    id: raw.id,
+    name: raw.name,
+    profileType: raw.profileType,
+    description: raw.description,
+    createdAt: new Date(raw.createdAt),
+    sections: raw.sections
+      .slice()
+      .sort((a, b) => a.sectionOrder - b.sectionOrder)
+      .map((s) => ({
+        id: s.id,
+        checklistId: s.checklistId,
+        name: s.sectionName,
+        sectionOrder: s.sectionOrder,
+        weight: s.weight,
+        items: s.items.map((i) => ({
+          id: i.id,
+          sectionId: i.sectionId,
+          text: i.itemText,
+          itemOrder: i.itemOrder,
+          isInverted: i.isInverted ?? false,
+          isSubheading: i.isSubheading ?? false,
+        })),
+      })),
+  };
 }
 
 export default function NewInspectionPage() {
@@ -38,18 +93,17 @@ export default function NewInspectionPage() {
   const [checklist, setChecklist] = useState<ChecklistFull | null>(null);
   const [inspectorName, setInspectorName] = useState(name ?? "");
   const [location, setLocation] = useState("");
-  const [unitType, setUnitType] = useState<(typeof UNIT_TYPES)[number] | "">("");
-  const [localThreatLevel, setLocalThreatLevel] = useState("1.0");
-  const [notes, setNotes] = useState("");
-  const [answersByItemId, setAnswersByItemId] = useState<
-    Record<number, { status: AnswerStatus; observations?: string }>
-  >({});
+  const [selectedUnitId, setSelectedUnitId] = useState<string>("");
+  const [threatLevel, setThreatLevel] = useState("1");
+  const [usePrefill, setUsePrefill] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   const listQuery = trpc.checklists.list.useQuery(undefined, { retry: 1 });
   useEffect(() => {
     if (listQuery.data) {
-      cacheChecklistIndex(listQuery.data.map((c) => ({ id: c.id, profileType: c.profileType, name: c.name })));
+      cacheChecklistIndex(
+        listQuery.data.map((c) => ({ id: c.id, profileType: c.profileType, name: c.name }))
+      );
       const resolved = resolveChecklistId(listQuery.data, profileType);
       if (resolved) setChecklistId(resolved);
     }
@@ -62,7 +116,7 @@ export default function NewInspectionPage() {
 
   useEffect(() => {
     if (fullQuery.data && checklistId != null) {
-      setChecklist(fullQuery.data as ChecklistFull);
+      setChecklist(adaptChecklist(fullQuery.data as unknown as BackendChecklist));
       void cacheChecklist(checklistId, profileType as "residencial" | "mpsc", fullQuery.data);
     }
   }, [fullQuery.data, checklistId, profileType]);
@@ -70,40 +124,43 @@ export default function NewInspectionPage() {
   useEffect(() => {
     if ((fullQuery.isError || !online) && checklistId != null && !checklist) {
       void getCachedChecklist(checklistId).then((cached) => {
-        if (cached) setChecklist(cached.data as ChecklistFull);
+        if (cached) setChecklist(adaptChecklist(cached.data as BackendChecklist));
       });
     }
   }, [fullQuery.isError, online, checklistId, checklist]);
 
+  // Unidades cadastradas (apenas MPSC; exige estar online e autenticado)
+  const unitsQuery = trpc.units.list.useQuery(undefined, {
+    enabled: profileType === "mpsc" && !!token,
+    retry: 1,
+  });
+  const units = (unitsQuery.data ?? []) as unknown as Unit[];
+  const selectedUnit: Unit | null =
+    units.find((u) => String(u.id) === selectedUnitId) ?? null;
+
+  // Pré-preenchimento com a última inspeção da unidade selecionada
+  const lastQuery = trpc.inspections.getLastByUnit.useQuery(
+    { unitId: Number(selectedUnitId), checklistId: checklistId as number },
+    { enabled: usePrefill && !!selectedUnitId && checklistId != null && !!token, retry: 1 }
+  );
+  const previousAnswers = useMemo(() => {
+    if (!usePrefill || !lastQuery.data) return undefined;
+    return lastQuery.data.answers.map((a) => ({
+      itemId: a.itemId,
+      status: a.status,
+      observations: a.observations ?? undefined,
+    }));
+  }, [usePrefill, lastQuery.data]);
+
   const syncMutation = trpc.inspections.sync.useMutation();
 
-  const totalItems = useMemo(
-    () => checklist?.sections.flatMap((s) => s.items).filter((i) => !i.isSubheading).length ?? 0,
-    [checklist]
-  );
-  const answeredItems = Object.keys(answersByItemId).length;
-
-  function handleAnswerChange(itemId: number, status: AnswerStatus) {
-    setAnswersByItemId((prev) => ({ ...prev, [itemId]: { ...prev[itemId], status } }));
-  }
-
-  function handleObservationChange(itemId: number, observations: string) {
-    setAnswersByItemId((prev) => ({
-      ...prev,
-      [itemId]: { status: prev[itemId]?.status ?? "N/A", observations },
-    }));
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!checklist || checklistId == null) return;
+  async function handleSubmit(data: InspectionFormData | null) {
+    if (!data || checklistId == null) return;
 
     const clientUuid = crypto.randomUUID();
-    const answersPayload = Object.entries(answersByItemId).map(([itemId, a]) => ({
-      itemId: Number(itemId),
-      status: a.status,
-      observations: a.observations,
-    }));
+    const threat = profileType === "mpsc" ? Number(threatLevel) : undefined;
+    const unitType =
+      profileType === "mpsc" ? selectedUnit?.type : ("Residência" as const);
 
     await saveInspectionLocally({
       clientUuid,
@@ -111,108 +168,139 @@ export default function NewInspectionPage() {
       profileType: profileType as "residencial" | "mpsc",
       inspectorName,
       location: location || undefined,
-      unitType: unitType || undefined,
-      localThreatLevel: profileType === "mpsc" ? Number(localThreatLevel) : undefined,
-      notes: notes || undefined,
-      answers: answersPayload,
+      unitId: selectedUnit?.id,
+      unitType,
+      localThreatLevel: threat,
+      notes: data.observations,
+      answers: data.answers,
       updatedAt: Date.now(),
       synced: false,
     });
 
     if (online && token) {
       try {
-        await syncMutation.mutateAsync({
+        const result = await syncMutation.mutateAsync({
           clientUuid,
           checklistId,
           inspectorName,
           location: location || undefined,
-          unitType: unitType || undefined,
-          localThreatLevel: profileType === "mpsc" ? Number(localThreatLevel) : undefined,
-          notes: notes || undefined,
-          answers: answersPayload,
+          unitId: selectedUnit?.id,
+          unitType,
+          localThreatLevel: threat,
+          notes: data.observations,
+          answers: data.answers,
         });
-        setSavedMessage("Inspeção salva e sincronizada com sucesso.");
+        setSavedMessage(
+          `Inspeção salva e sincronizada (versão ${result.version}, ISI ${result.score.isi}%).`
+        );
       } catch {
         setSavedMessage("Inspeção salva localmente. Será sincronizada quando possível.");
       }
     } else {
-      setSavedMessage("Inspeção salva localmente (offline). Será sincronizada quando você fizer login e estiver online.");
+      setSavedMessage(
+        "Inspeção salva localmente (offline). Será sincronizada quando você fizer login e estiver online."
+      );
     }
 
-    setTimeout(() => navigate(`/checklist/${profileType}/inspections`), 1200);
+    setTimeout(() => navigate(`/checklist/${profileType}/inspections`), 1500);
   }
 
   if (!checklist) {
-    return <p>Carregando checklist{!online ? " (offline, usando cache local se disponível)" : ""}...</p>;
+    return (
+      <p>
+        Carregando checklist{!online ? " (offline, usando cache local se disponível)" : ""}...
+      </p>
+    );
   }
 
   return (
-    <div>
-      <h1>Nova Inspeção — {checklist.name}</h1>
-      <form onSubmit={handleSubmit}>
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" }}>
-          <input
-            placeholder="Nome do inspetor"
-            value={inspectorName}
-            onChange={(e) => setInspectorName(e.target.value)}
-            required
-          />
-          <input placeholder="Local / Endereço" value={location} onChange={(e) => setLocation(e.target.value)} />
+    <div className="space-y-4">
+      <h1 className="text-2xl font-bold">Nova Inspeção — {checklist.name}</h1>
+
+      <Card>
+        <CardContent className="py-4 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="inspector">Nome do inspetor</Label>
+            <Input
+              id="inspector"
+              value={inspectorName}
+              onChange={(e) => setInspectorName(e.target.value)}
+              placeholder="Nome do inspetor"
+              required
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="location">Local / Endereço</Label>
+            <Input
+              id="location"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Local / Endereço"
+            />
+          </div>
+
           {profileType === "mpsc" && (
             <>
-              <select value={unitType} onChange={(e) => setUnitType(e.target.value as typeof unitType)}>
-                <option value="">Tipo de unidade</option>
-                {UNIT_TYPES.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-              <label>
-                Nível de ameaça local (1,0 a 2,0)
-                <input
-                  type="number"
-                  min={1}
-                  max={2}
-                  step={0.1}
-                  value={localThreatLevel}
-                  onChange={(e) => setLocalThreatLevel(e.target.value)}
-                  style={{ marginLeft: "0.5rem", width: 70 }}
-                />
-              </label>
+              <div className="space-y-1.5">
+                <Label>Unidade</Label>
+                <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a unidade" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {units.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.name} ({u.type}
+                        {u.status === "em_comissionamento" ? " — em comissionamento" : ""})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedUnitId && (
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+                    <input
+                      type="checkbox"
+                      checked={usePrefill}
+                      onChange={(e) => setUsePrefill(e.target.checked)}
+                    />
+                    Pré-preencher com a última inspeção desta unidade
+                  </label>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Nível de ameaça local</Label>
+                <Select value={threatLevel} onValueChange={setThreatLevel}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {THREAT_LEVELS.map((t) => (
+                      <SelectItem key={t.value} value={String(t.value)}>
+                        {t.label} ({t.value.toFixed(1)}) — {t.description}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </>
           )}
-        </div>
+        </CardContent>
+      </Card>
 
-        <p>
-          {answeredItems} / {totalItems} itens respondidos
-        </p>
+      {savedMessage && (
+        <Card className="border-green-300 bg-green-50">
+          <CardContent className="py-3 text-sm text-green-800">{savedMessage}</CardContent>
+        </Card>
+      )}
 
-        {checklist.sections
-          .slice()
-          .sort((a, b) => a.sectionOrder - b.sectionOrder)
-          .map((section) => (
-            <SectionCard
-              key={section.id}
-              section={section}
-              answersByItemId={answersByItemId}
-              onChange={handleAnswerChange}
-              onObservationChange={handleObservationChange}
-            />
-          ))}
-
-        <textarea
-          placeholder="Observações gerais"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          style={{ width: "100%" }}
-        />
-
-        {savedMessage && <p>{savedMessage}</p>}
-
-        <button type="submit">Salvar Inspeção</button>
-      </form>
+      <InspectionForm
+        checklist={checklist}
+        selectedUnit={selectedUnit}
+        previousAnswers={previousAnswers}
+        profileType={profileType as "mpsc" | "residencial"}
+        onSubmit={handleSubmit}
+        isSubmitting={syncMutation.isLoading}
+      />
     </div>
   );
 }

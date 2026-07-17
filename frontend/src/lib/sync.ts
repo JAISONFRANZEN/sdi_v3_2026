@@ -16,6 +16,7 @@ export async function flushPendingInspections(
     checklistId: number;
     inspectorName: string;
     location?: string;
+    unitId?: number;
     unitType?: LocalUnitType;
     localThreatLevel?: number;
     notes?: string;
@@ -32,6 +33,7 @@ export async function flushPendingInspections(
         checklistId: inspection.checklistId,
         inspectorName: inspection.inspectorName,
         location: inspection.location,
+        unitId: inspection.unitId,
         unitType: inspection.unitType as LocalUnitType | undefined,
         localThreatLevel: inspection.localThreatLevel,
         notes: inspection.notes,

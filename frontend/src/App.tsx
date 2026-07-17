@@ -12,6 +12,7 @@ import NewInspectionPage from "./pages/NewInspectionPage";
 import InspectionListPage from "./pages/InspectionListPage";
 import InspectionDetailPage from "./pages/InspectionDetailPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
+import UnitsPage from "./pages/UnitsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,6 +51,7 @@ function App() {
                   element={<InspectionDetailPage />}
                 />
                 <Route path="/checklist/:profileType/analytics" element={<AnalyticsPage />} />
+                <Route path="/checklist/:profileType/units" element={<UnitsPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
